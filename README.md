@@ -22,7 +22,11 @@ This script utilizes **Docker** in order to assure the compatibility between
 Yocto and Ubuntu versions.
 
 To install **Docker** correctly you need to follow the instructions at the 
-following page [docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
+following page 
+<a href="https://docs.docker.com/engine/install/" 
+    target="_blank" 
+    rel="noopener noreferrer">Docker Install Guide
+</a>
 
 ## Download and use setup script
 
