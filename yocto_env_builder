@@ -33,7 +33,15 @@ def fill_dictionary():
 
 def print_usage():
     print("Usage:\n%s <SOC vendor> <yocto version>\n" % (sys.argv[0]))
-    print("es.\n\n %s nxp zeus " % (sys.argv[0]))
+    print("Examples:")
+    print("  %s engicam kirkstone" % (sys.argv[0]))
+    print("  %s none scarthgap" % (sys.argv[0]))
+    print("")
+    print("Container runtime selection:")
+    print("  - automatic: podman (preferred) or docker")
+    print("  - force runtime: CONTAINER_RUNTIME=podman %s engicam kirkstone" % (sys.argv[0]))
+    print("  - force runtime: CONTAINER_RUNTIME=docker %s engicam kirkstone" % (sys.argv[0]))
+    print("")
     print_available()
     quit()
 
