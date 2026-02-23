@@ -1,111 +1,174 @@
 #!/usr/bin/python
 
-import sys,os
+import os
 import shutil
+import subprocess
+import sys
+import getpass
 
 from collections import defaultdict
 
 distro_dic = {}
 docker_dic = {}
 
-EMPTY_REPO=""
+EMPTY_REPO = ""
+
 
 def fill_dictionary():
-	global distro_dic
-	global docker_dic
+    global distro_dic
+    global docker_dic
 
-	distro_dic = defaultdict(dict)
-	distro_dic['engicam']['kirkstone']="https://github.com/engicam-stable/engicam-bsp-release.git -b kirkstone-nxp -m engicam-bsp-release.xml"
-	distro_dic['engicam']['scarthgap']="https://github.com/engicam-stable/engicam-bsp-release.git -b scarthgap-nxp -m engicam-bsp-release.xml"
-	distro_dic['none']['kirkstone']=EMPTY_REPO
-	distro_dic['none']['scarthgap']=EMPTY_REPO
+    distro_dic = defaultdict(dict)
+    distro_dic["engicam"]["kirkstone"] = "https://github.com/engicam-stable/engicam-bsp-release.git -b kirkstone-nxp -m engicam-bsp-release.xml"
+    distro_dic["engicam"]["scarthgap"] = "https://github.com/engicam-stable/engicam-bsp-release.git -b scarthgap-nxp -m engicam-bsp-release.xml"
+    distro_dic["none"]["kirkstone"] = EMPTY_REPO
+    distro_dic["none"]["scarthgap"] = EMPTY_REPO
 
-	docker_dic = defaultdict(dict)
-	docker_dic['engicam']['kirkstone']="ubuntu22"
-	docker_dic['engicam']['scarthgap']="ubuntu22"
-	docker_dic['none']['kirkstone']="ubuntu22"
-	docker_dic['none']['scarthgap']="ubuntu24"
+    docker_dic = defaultdict(dict)
+    docker_dic["engicam"]["kirkstone"] = "ubuntu22"
+    docker_dic["engicam"]["scarthgap"] = "ubuntu22"
+    docker_dic["none"]["kirkstone"] = "ubuntu22"
+    docker_dic["none"]["scarthgap"] = "ubuntu24"
+
 
 def print_usage():
-	print ("Usage:\n%s <SOC vendor> <yocto version>\n" % (sys.argv[0]))
-	print ("es.\n\n %s nxp zeus "% (sys.argv[0]))
-	print_available()
-	quit()
+    print("Usage:\n%s <SOC vendor> <yocto version>\n" % (sys.argv[0]))
+    print("es.\n\n %s nxp zeus " % (sys.argv[0]))
+    print_available()
+    quit()
+
 
 def print_available():
-	global distro_dic
-	print("Combination available:")
-	for vendor in distro_dic.keys():
-		print("\nVendor %s:\n"%vendor)
-		for yocto in distro_dic[vendor].keys():
-  			print(yocto)
+    global distro_dic
+    print("Combination available:")
+    for vendor in distro_dic.keys():
+        print("\nVendor %s:\n" % vendor)
+        for yocto in distro_dic[vendor].keys():
+            print(yocto)
 
-def clone_sources(mvendor,yversion):
-	global distro_dic
-	global docker_dic
 
-	try:
-		repofiles=distro_dic[mvendor][yversion]
-	except KeyError:
-		print_available()
-		exit()
+def get_container_runtime():
+    runtime = os.environ.get("CONTAINER_RUNTIME", "").strip()
+    if runtime:
+        if shutil.which(runtime):
+            return runtime
+        raise RuntimeError("Container runtime '%s' not found in PATH" % runtime)
 
-	try:
-		ubuntuname=docker_dic[mvendor][yversion]
-	except KeyError:
-		print("error on docker_dic")
-		exit()
+    if shutil.which("podman"):
+        return "podman"
 
-	path=mvendor + "_" + yversion
+    if shutil.which("docker"):
+        return "docker"
 
-	containername="ubuntu_" + ubuntuname
+    raise RuntimeError("Neither podman nor docker found in PATH")
 
-	try:
-		os.mkdir(path)
-	except OSError:
-		print ("the directory %s already exist" % path)
-		os.chdir(path)
-	else:
-		print ("Successfully created the directory %s " % path)
-		os.chdir(path)
-		print(os.getcwd())
-		if not repofiles:
-			print("No Yocto sources to clone, preparing only build environment")
-		else:
-			print(repofiles)
-			os.system("repo init -u " + repofiles)
-			os.system("repo sync")
 
-	os.chdir("..")
-	cur_path = os.getcwd() + "/" + path
-	print(cur_path)
-	docker_path = "dockerfiles/"+path
-	try:
-		os.mkdir(docker_path)
-	except OSError:
-		print ("the directory %s already exist" % docker_path)
-		os.chdir(docker_path)
-	else:
-		print ("Successfully created the directory %s " % docker_path)
-		os.chdir(docker_path)
-		shutil.copy("../Dockerfile_" + ubuntuname, "Dockerfile")
+def maybe_add_sudo(runtime_cmd):
+    if runtime_cmd != "docker":
+        return []
 
-		os.system("sudo docker build --no-cache --build-arg userid=$(id -u) --build-arg groupid=$(id -g) --build-arg username=$(id -un) -t " + containername +" .")
+    if os.geteuid() == 0:
+        return []
 
-	os.system("sudo docker run --privileged -it -v %s:/yocto -ti " % (cur_path) + containername)
+    return ["sudo"]
+
+
+def clone_sources(mvendor, yversion):
+    global distro_dic
+    global docker_dic
+
+    try:
+        repofiles = distro_dic[mvendor][yversion]
+    except KeyError:
+        print_available()
+        exit()
+
+    try:
+        ubuntuname = docker_dic[mvendor][yversion]
+    except KeyError:
+        print("error on docker_dic")
+        exit()
+
+    path = mvendor + "_" + yversion
+
+    containername = "ubuntu_" + ubuntuname
+
+    try:
+        os.mkdir(path)
+    except OSError:
+        print("the directory %s already exist" % path)
+        os.chdir(path)
+    else:
+        print("Successfully created the directory %s " % path)
+        os.chdir(path)
+        print(os.getcwd())
+        if not repofiles:
+            print("No Yocto sources to clone, preparing only build environment")
+        else:
+            print(repofiles)
+            os.system("repo init -u " + repofiles)
+            os.system("repo sync")
+
+    os.chdir("..")
+    cur_path = os.getcwd() + "/" + path
+    print(cur_path)
+    docker_path = "dockerfiles/" + path
+    try:
+        os.mkdir(docker_path)
+    except OSError:
+        print("the directory %s already exist" % docker_path)
+        os.chdir(docker_path)
+    else:
+        print("Successfully created the directory %s " % docker_path)
+        os.chdir(docker_path)
+        shutil.copy("../Dockerfile_" + ubuntuname, "Dockerfile")
+
+    runtime = get_container_runtime()
+    cmd_prefix = maybe_add_sudo(runtime) + [runtime]
+    print("Using container runtime:", runtime)
+
+    subprocess.check_call(
+        cmd_prefix
+        + [
+            "build",
+            "--no-cache",
+            "--build-arg",
+            "userid=%s" % os.getuid(),
+            "--build-arg",
+            "groupid=%s" % os.getgid(),
+            "--build-arg",
+            "username=%s" % getpass.getuser(),
+            "-t",
+            containername,
+            ".",
+        ]
+    )
+
+    subprocess.check_call(
+        cmd_prefix
+        + [
+            "run",
+            "--privileged",
+            "-it",
+            "-v",
+            "%s:/yocto" % cur_path,
+            containername,
+        ]
+    )
+
 
 def main():
+    fill_dictionary()
 
-	fill_dictionary()
+    if len(sys.argv) != 3:
+        print_usage()
+        quit()
 
-	if len(sys.argv) != 3:
-		print_usage()
-		quit()
+    vendor = sys.argv[1]
+    yoctoversion = sys.argv[2]
 
-	vendor=sys.argv[1]
-	yoctoversion=sys.argv[2]
+    clone_sources(vendor, yoctoversion)
 
-	clone_sources(vendor,yoctoversion)
 
 if __name__ == "__main__":
     main()
